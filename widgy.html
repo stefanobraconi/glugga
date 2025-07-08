@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widgy Manager with Dockbar</title>
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            background-color: #f0f2f5;
+            overflow: hidden; /* Prevent body scroll from window dragging */
+        }
+
+        /* Basic Widgy Styles */
+        .widgy-root {
+            display: flex;
+            flex-direction: column;
+            position: absolute;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            background-color: white;
+            overflow: hidden; /* Ensures rounded corners on content */
+            transition: opacity 0.3s ease, transform 0.3s ease; /* Smooth transitions for show/hide */
+            min-width: 150px; /* Minimum width for windows */
+            min-height: 100px; /* Minimum height for windows */
+        }
+
+        .widgy-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 30px; /* Increased height for better interaction */
+            background-color: #e0e0e0;
+            padding: 0 8px;
+            border-bottom: 1px solid #d0d0d0;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: grab; /* Indicates draggable */
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+        }
+
+        .widgy-header button {
+            background-color: #f44336; /* Red for close */
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            margin-left: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s ease;
+        }
+
+        .widgy-header button.hide-button {
+            background-color: #ff9800; /* Orange for hide */
+        }
+
+        .widgy-header button:hover {
+            opacity: 0.9;
+        }
+
+        .widgy-title-header {
+            flex-grow: 1;
+            text-align: center;
+            margin: 0 10px; /* Space for buttons */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .widgy-container {
+            flex-grow: 1;
+            background-color: white;
+            padding: 10px;
+            overflow: auto;
+            color: #333;
+        }
+
+        .widgy-statusbar {
+            height: 25px; /* Increased height */
+            background-color: #e0e0e0;
+            padding: 0 8px;
+            border-top: 1px solid #d0d0d0;
+            font-size: 12px;
+            color: #555;
+            display: flex;
+            align-items: center;
+            border-bottom-left-radius: 8px;
+            border-bottom-right-radius: 8px;
+        }
+
+        .widgy-resize-handle {
+            width: 15px; /* Larger handle */
+            height: 15px;
+            background-color: #2196f3; /* Blue for resize */
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            cursor: se-resize;
+            border-bottom-right-radius: 8px;
+        }
+
+        /* Dockbar Styles */
+        #dockbar {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            padding: 10px 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            z-index: 1000; /* Ensure dockbar is on top */
+            backdrop-filter: blur(5px); /* Frosted glass effect */
+            -webkit-backdrop-filter: blur(5px);
+        }
+
+        .dockbar-icon {
+            width: 60px;
+            height: 60px;
+            background-color: #4CAF50; /* Green default */
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            overflow: hidden; /* For long titles */
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .dockbar-icon:hover {
+            transform: translateY(-5px) scale(1.05);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .dockbar-icon.active {
+            background-color: #2196F3; /* Blue for active */
+            box-shadow: 0 0 0 3px #2196F3, 0 5px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .dockbar-icon.minimized {
+            background-color: #9E9E9E; /* Gray for minimized */
+            opacity: 0.7;
+        }
+
+        .dockbar-icon-label {
+            margin-top: 5px;
+            font-size: 10px;
+            color: white;
+            width: 100%;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <h1 class="text-3xl font-bold text-gray-800 mb-8">Widgy Windows Demo</h1>
+    <p class="text-gray-600 mb-8">Drag, resize, hide, and close windows. Watch the dockbar update!</p>
+
+    <script>
+        // --- Utility Functions (Provided by user context, simplified for example) ---
+        const _usedIDs = new Set();
+        const _usedNames = new Set();
+
+        function verify(value) {
+            return typeof value === 'number' && !isNaN(value);
+        }
+
+        function uniquizerID(prefix = '') {
+            let id;
+            do {
+                id = prefix + Math.random().toString(36).substring(2, 11);
+            } while (_usedIDs.has(id));
+            _usedIDs.add(id);
+            return id;
+        }
+
+        function checkName(name) {
+            return _usedNames.has(name);
+        }
+
+        function removeID(id) {
+            const element = document.getElementById(id);
+            if (element) {
+                _usedIDs.delete(id);
+                // Also remove name if associated
+                const name = element.getAttribute('name'); // Assuming name is set as attribute
+                if (name) {
+                    _usedNames.delete(name);
+                }
+                element.remove();
+            }
+        }
+
+        function getMaxZIndex() {
+            let maxZ = 0;
+            const elements = document.querySelectorAll('.widgy-root');
+            elements.forEach(el => {
+                const z = parseInt(window.getComputedStyle(el).zIndex);
+                if (!isNaN(z) && z > maxZ) {
+                    maxZ = z;
+                }
+            });
+            return maxZ;
+        }
+
+        function setAllZindexMinus() {
+            // This function's original intent might be to push other windows back.
+            // For simplicity and to avoid complex z-index management, we'll just ensure
+            // the clicked window comes to front.
+            // If you need more complex z-index management, this function would iterate
+            // through all windows and set their z-index to a lower value.
+        }
+
+        // --- Widgy Class (Updated) ---
+        class Widgy extends EventTarget {
+            constructor({ name, x, y, width, height, draggable = true, closeable = true, hideable = true, resizable = true, title = "Default Title" }) {
+                super(); // Call EventTarget constructor
+
+                if (!verify(x) || !verify(y) || !verify(width) || !verify(height)) {
+                    console.error('Widgy Alert!: Invalid dimensions or position. x=' + x + ' y=' + y + ' width=' + width + ' height=' + height);
+                    return null; // Return null on failure
+                }
+
+                this.name = name;
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.title = title;
+                this.statusBarText = '';
+                this.isVisible = false;
+                this.isMinimized = false; // New state for minimized
+                this.isActive = false; // New state for active window
+
+                this.widgetRoot = document.createElement('div');
+                this.widgetHeader = document.createElement('div');
+                this.widgetTitleHeader = document.createElement('div');
+                this.widgetContainer = document.createElement('div');
+                this.widgetStatusbar = document.createElement('div');
+
+                // Apply Tailwind-like classes or inline styles for better aesthetics
+                this.widgetRoot.className = 'widgy-root';
+                this.widgetHeader.className = 'widgy-header';
+                this.widgetTitleHeader.className = 'widgy-title-header';
+                this.widgetContainer.className = 'widgy-container';
+                this.widgetStatusbar.className = 'widgy-statusbar';
+
+                this.widgetRoot.style.left = x + 'px';
+                this.widgetRoot.style.top = y + 'px';
+                this.widgetRoot.style.width = width + 'px';
+                this.widgetRoot.style.height = height + 'px';
+                this.widgetRoot.style.display = 'none'; // Hidden by default
+                this.widgetRoot.style.opacity = 0;
+
+                if (closeable) {
+                    this.widgetCloseButton = document.createElement('button');
+                    this.widgetCloseButton.textContent = 'X';
+                    this.widgetCloseButton.className = 'close-button';
+                    this.widgetCloseButton.onclick = () => this.close();
+                    this.widgetHeader.appendChild(this.widgetCloseButton);
+                }
+
+                if (hideable) {
+                    this.widgetHideButton = document.createElement('button');
+                    this.widgetHideButton.textContent = '_';
+                    this.widgetHideButton.className = 'hide-button';
+                    this.widgetHideButton.onclick = () => this.hide();
+                    this.widgetHeader.appendChild(this.widgetHideButton);
+                }
+
+                this.widgetHeader.appendChild(this.widgetTitleHeader);
+
+                this.widgetRoot.appendChild(this.widgetHeader);
+                this.widgetRoot.appendChild(this.widgetContainer);
+                this.widgetRoot.appendChild(this.widgetStatusbar);
+
+                if (resizable) {
+                    this.widgetResize = document.createElement('div');
+                    this.widgetResize.className = 'widgy-resize-handle';
+                    this.widgetRoot.appendChild(this.widgetResize);
+                }
+
+                if (draggable) {
+                    this.widgetHeader.onmousedown = (event) => this.startDrag(event, this.widgetRoot);
+                }
+
+                if (resizable) {
+                    this.widgetResize.onmousedown = (event) => this.startResize(event, this.widgetRoot);
+                }
+
+                this.widgetRoot.id = uniquizerID('widgy-root-');
+                if (checkName(name)) {
+                    console.error('Widgy Alert!: name (' + name + ') already exists. Please use a unique name.');
+                    return null;
+                }
+                _usedNames.add(name); // Add name to used names
+                this.widgetRoot.setAttribute('name', name); // Store name as an attribute for easy lookup
+
+                this.widgetTitleHeader.textContent = title;
+                document.body.appendChild(this.widgetRoot);
+
+                this.widgetRoot.onmousedown = () => this.activate(); // Activate on click
+
+                return this;
+            }
+
+            activate() {
+                // Bring to front
+                this.widgetRoot.style.zIndex = getMaxZIndex() + 1;
+                // Dispatch event for activation
+                this.dispatchEvent(new CustomEvent('widgyActivated', { detail: { name: this.name } }));
+            }
+
+            startDrag(event, windowElement) {
+                let isDragging = true;
+                let offset = { x: 0, y: 0 };
+                const rect = windowElement.getBoundingClientRect();
+                offset.x = event.clientX - rect.left;
+                offset.y = event.clientY - rect.top;
+
+                const onMouseMove = (moveEvent) => {
+                    if (isDragging) {
+                        const newX = moveEvent.clientX - offset.x;
+                        const newY = moveEvent.clientY - offset.y;
+                        windowElement.style.left = newX + 'px';
+                        windowElement.style.top = newY + 'px';
+                    }
+                };
+
+                const onMouseUp = () => {
+                    isDragging = false;
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+
+                    // Update internal position and dispatch event
+                    this.x = parseInt(windowElement.style.left);
+                    this.y = parseInt(windowElement.style.top);
+                    this.dispatchEvent(new CustomEvent('widgyMoved', { detail: { name: this.name, x: this.x, y: this.y } }));
+                };
+
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            }
+
+            startResize(event, windowElement) {
+                let isResizing = true;
+                const initialX = event.clientX;
+                const initialY = event.clientY;
+                const initialWidth = windowElement.offsetWidth;
+                const initialHeight = windowElement.offsetHeight;
+
+                const onMouseMove = (moveEvent) => {
+                    if (isResizing) {
+                        const newWidth = initialWidth + (moveEvent.clientX - initialX);
+                        const newHeight = initialHeight + (moveEvent.clientY - initialY);
+
+                        // Apply minimum dimensions
+                        windowElement.style.width = Math.max(newWidth, 150) + 'px';
+                        windowElement.style.height = Math.max(newHeight, 100) + 'px';
+                    }
+                };
+
+                const onMouseUp = () => {
+                    isResizing = false;
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+
+                    // Update internal dimensions and dispatch event
+                    this.width = parseInt(windowElement.style.width);
+                    this.height = parseInt(windowElement.style.height);
+                    this.dispatchEvent(new CustomEvent('widgyResized', { detail: { name: this.name, width: this.width, height: this.height } }));
+                };
+
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            }
+
+            show() {
+                this.widgetRoot.style.display = 'flex';
+                this.widgetRoot.style.opacity = 1;
+                this.isVisible = true;
+                this.isMinimized = false; // No longer minimized when shown
+                this.activate(); // Also activate when shown
+                this.dispatchEvent(new CustomEvent('widgyShown', { detail: { name: this.name, isVisible: this.isVisible, isMinimized: this.isMinimized } }));
+                return true;
+            }
+
+            hide() {
+                this.widgetRoot.style.display = 'none';
+                this.widgetRoot.style.opacity = 0;
+                this.isVisible = false;
+                this.isMinimized = true; // Consider it minimized when hidden
+                this.dispatchEvent(new CustomEvent('widgyHidden', { detail: { name: this.name, isVisible: this.isVisible, isMinimized: this.isMinimized } }));
+                return true;
+            }
+
+            close() {
+                removeID(this.widgetRoot.id);
+                this.dispatchEvent(new CustomEvent('widgyClosed', { detail: { name: this.name } }));
+                return true;
+            }
+
+            writeStatusBarText(text) {
+                this.statusBarText = text;
+                this.widgetStatusbar.textContent = text;
+                this.dispatchEvent(new CustomEvent('widgyStatusBarTextChanged', { detail: { name: this.name, newText: text } }));
+                return true;
+            }
+
+            writeTitle(text) {
+                this.title = text;
+                this.widgetTitleHeader.textContent = text;
+                this.dispatchEvent(new CustomEvent('widgyTitleChanged', { detail: { name: this.name, newTitle: text } }));
+                return true;
+            }
+
+            writeText(text) {
+                this.widgetContainer.textContent = text;
+                return true;
+            }
+
+            writehtml(html) {
+                this.widgetContainer.innerHTML = html;
+                return true;
+            }
+
+            getHandle() {
+                return this.widgetContainer;
+            }
+
+            appendContent(content) {
+                this.widgetContainer.appendChild(content);
+            }
+
+            getTitle() {
+                return this.title;
+            }
+
+            getName() {
+                return this.name;
+            }
+
+            getID() {
+                return this.widgetRoot.id;
+            }
+        }
+
+        // --- WidgetManager Class ---
+        class WidgetManager {
+            constructor() {
+                this.widgets = [];
+                this.dockbar = document.createElement('div');
+                this.dockbar.id = 'dockbar';
+                document.body.appendChild(this.dockbar);
+                this.activeWidgetName = null; // Track the currently active widget
+            }
+
+            addWidget(widgy) {
+                if (widgy === null) {
+                    console.error("Attempted to add a null Widgy to WidgetManager.");
+                    return;
+                }
+                this.widgets.push(widgy);
+
+                // Add listener for all relevant mutations from the widgy
+                widgy.addEventListener('widgyShown', this.handleWidgyEvent.bind(this));
+                widgy.addEventListener('widgyHidden', this.handleWidgyEvent.bind(this));
+                widgy.addEventListener('widgyClosed', this.handleWidgyEvent.bind(this));
+                widgy.addEventListener('widgyTitleChanged', this.handleWidgyEvent.bind(this));
+                widgy.addEventListener('widgyStatusBarTextChanged', this.handleWidgyEvent.bind(this));
+                widgy.addEventListener('widgyMoved', this.handleWidgyEvent.bind(this));
+                widgy.addEventListener('widgyResized', this.handleWidgyEvent.bind(this));
+                widgy.addEventListener('widgyActivated', this.handleWidgyEvent.bind(this));
+
+                this.updateDockbar();
+            }
+
+            removeWidget(widgyName) {
+                this.widgets = this.widgets.filter(w => w.name !== widgyName);
+                if (this.activeWidgetName === widgyName) {
+                    this.activeWidgetName = null; // Clear active if closed
+                }
+                this.updateDockbar();
+            }
+
+            handleWidgyEvent(event) {
+                const widgyName = event.detail.name;
+                console.log(`WidgetManager: Event '${event.type}' for '${widgyName}'`);
+
+                if (event.type === 'widgyClosed') {
+                    this.removeWidget(widgyName);
+                } else if (event.type === 'widgyActivated') {
+                    this.activeWidgetName = widgyName;
+                    this.updateDockbar(); // Update to highlight active
+                } else {
+                    this.updateDockbar(); // Update for other changes (title, status, visibility, position, size)
+                }
+            }
+
+            updateDockbar() {
+                this.dockbar.innerHTML = ''; // Clear current dockbar icons
+                this.widgets.forEach(widgy => {
+                    const widgyIcon = document.createElement('div');
+                    widgyIcon.className = 'dockbar-icon rounded-lg';
+                    widgyIcon.setAttribute('data-widgy-name', widgy.name); // Store name for easy lookup
+
+                    // Add icon based on state
+                    if (widgy.isMinimized) {
+                        widgyIcon.classList.add('minimized');
+                        widgyIcon.innerHTML = `<span class="text-2xl">_</span><div class="dockbar-icon-label">${widgy.title || widgy.name}</div>`;
+                    } else if (widgy.isActive) {
+                        widgyIcon.classList.add('active');
+                        widgyIcon.innerHTML = `<span class="text-2xl">●</span><div class="dockbar-icon-label">${widgy.title || widgy.name}</div>`;
+                    } else if (widgy.isVisible) {
+                        widgyIcon.innerHTML = `<span class="text-2xl">■</span><div class="dockbar-icon-label">${widgy.title || widgy.name}</div>`;
+                    } else {
+                         // Fallback for not visible and not minimized (e.g., just created but not shown)
+                        widgyIcon.innerHTML = `<span class="text-2xl">?</span><div class="dockbar-icon-label">${widgy.title || widgy.name}</div>`;
+                    }
+
+                    // Handle click on dockbar icon
+                    widgyIcon.addEventListener('click', () => {
+                        // Find the actual Widgy instance
+                        const targetWidgy = this.widgets.find(w => w.name === widgy.name);
+                        if (targetWidgy) {
+                            if (targetWidgy.isVisible && targetWidgy.isMinimized) {
+                                // If minimized (hidden), show it
+                                targetWidgy.show();
+                            } else if (targetWidgy.isVisible && !targetWidgy.isMinimized && targetWidgy.isActive) {
+                                // If active and visible, minimize it
+                                targetWidgy.hide();
+                            } else {
+                                // If visible but not active, bring to front and activate
+                                targetWidgy.show(); // Ensure visible
+                                targetWidgy.activate(); // Bring to front
+                            }
+                        }
+                    });
+                    this.dockbar.appendChild(widgyIcon);
+                });
+            }
+
+            getMenuHandler() {
+                // Placeholder for menu handler, if needed
+                return document.createElement('div');
+            }
+        }
+
+        // --- Main Application Logic ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const wmanager = new WidgetManager();
+
+            const w1 = new Widgy({
+                name: 'w1',
+                x: 50,
+                y: 50,
+                width: 300,
+                height: 200,
+                title: 'My First Window'
+            });
+            if (w1) wmanager.addWidget(w1);
+
+            const w2 = new Widgy({
+                name: 'w2',
+                x: 400,
+                y: 100,
+                width: 250,
+                height: 150,
+                title: 'Another Window'
+            });
+            if (w2) wmanager.addWidget(w2);
+
+            const w3 = new Widgy({
+                name: 'w3',
+                x: 150,
+                y: 300,
+                width: 350,
+                height: 250,
+                title: 'Third Window',
+                closeable: false // Example: non-closeable window
+            });
+            if (w3) wmanager.addWidget(w3);
+
+            // Show windows after adding to manager
+            if (w1) {
+                w1.show();
+                w1.writeStatusBarText('Hello from W1!');
+                w1.writeText('This is the content of the first window. You can drag, resize, and hide it.');
+            }
+            if (w2) {
+                w2.show();
+                w2.writeStatusBarText('W2 status');
+                w2.writeText('This is the second window. Try dragging me around!');
+            }
+            if (w3) {
+                w3.show();
+                w3.writeStatusBarText('W3 is always open!');
+                w3.writeText('This window cannot be closed. It demonstrates a non-closeable window.');
+            }
+
+            // Example of dynamic changes
+            setTimeout(() => {
+                if (w1) w1.writeTitle('Updated W1 Title');
+            }, 3000);
+
+            setTimeout(() => {
+                if (w2) w2.writeStatusBarText('W2 status updated!');
+            }, 5000);
+
+            setTimeout(() => {
+                if (w1) w1.hide(); // Hide W1
+            }, 7000);
+
+            setTimeout(() => {
+                if (w1) w1.show(); // Show W1 again
+            }, 9000);
+        });
+    </script>
+</body>
+</html>
