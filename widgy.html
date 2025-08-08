@@ -232,6 +232,10 @@
             // the clicked window comes to front.
             // If you need more complex z-index management, this function would iterate
             // through all windows and set their z-index to a lower value.
+                const elements = document.querySelectorAll('*');
+    elements.forEach(element => {
+        element.style.zIndex = element.zIndex - 1;
+    });
         }
 
         // --- Widgy Class (Updated) ---
@@ -641,3 +645,4 @@
     </script>
 </body>
 </html>
+
